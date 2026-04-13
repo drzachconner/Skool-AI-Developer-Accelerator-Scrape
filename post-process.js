@@ -2,12 +2,14 @@
  * Post-Processor for Skool AI Developer Accelerator Scrape
  *
  * Generates:
- * 1. Master index (master-index.md)
+ * 1. Master index (master-index.md) — CORE CURRICULUM first, then COMMUNITY POSTS
  * 2. HTML-to-Markdown conversion
  * 3. Skill/tool extraction
  * 4. Transcript compilation
  * 5. Comment re-extraction from saved HTML
- * 6. Post metadata extraction from _nextdata.json
+ * 6. Post metadata extraction with tier tagging (creator/high/medium/low)
+ * 7. High-value posts digest (high-value-posts.md) — 3+ upvotes, pinned, or creator
+ * 8. Curriculum-only digest (curriculum-only.md) — zero community posts, clean for ingestion
  */
 
 const path = require('path');
@@ -48,7 +50,23 @@ function generateMasterIndex() {
     .filter(f => !f.startsWith('_'))
     .sort();
 
-  for (const section of sections) {
+  // Separate curriculum from community posts with clear headers
+  // Sort so Classroom (02-) comes before Community Posts (01-)
+  const curriculum = sections.filter(s => s.includes('Classroom') || s.includes('About'));
+  const community = sections.filter(s => s.includes('Community') || s.includes('Posts'));
+  const other = sections.filter(s => !curriculum.includes(s) && !community.includes(s));
+  const orderedSections = [...curriculum, ...other, ...community];
+
+  // Add section separators
+  let inCurriculum = true;
+  for (const section of orderedSections) {
+    if (inCurriculum && (section.includes('Community') || section.includes('Posts'))) {
+      lines.push('', '---', '', '# COMMUNITY POSTS', '', '*Posts are tiered: creator > high > medium > low. See high-value-posts.md for curated digest.*', '');
+      inCurriculum = false;
+    } else if (inCurriculum && curriculum.indexOf(section) === 0) {
+      lines.push('# CORE CURRICULUM', '');
+    }
+
     lines.push(`## ${section.replace(/-/g, ' ').replace(/^\d+-/, '')}`, '');
 
     const sectionDir = path.join(CONTENT_DIR, section);
@@ -384,7 +402,27 @@ function reExtractComments() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Extract post metadata from _nextdata.json
+// Community creator/admin usernames (for tier tagging)
+// ---------------------------------------------------------------------------
+const CREATOR_USERNAMES = ['brandonhancock', 'brandon-hancock', 'brandonjhancock'];
+
+function isCreatorPost(entry) {
+  const authorLower = (entry.author || '').toLowerCase().replace(/\s+/g, '');
+  const usernameLower = (entry.authorUrl || '').toLowerCase();
+  return CREATOR_USERNAMES.some(c =>
+    authorLower.includes(c) || usernameLower.includes(c)
+  ) || authorLower.includes('brandon');
+}
+
+function assignTier(entry) {
+  if (isCreatorPost(entry)) return 'creator';
+  if (entry.upvotes >= 5 || entry.isPinned) return 'high';
+  if (entry.upvotes >= 2) return 'medium';
+  return 'low';
+}
+
+// ---------------------------------------------------------------------------
+// 6. Extract post metadata from _nextdata.json (with tier tagging)
 // ---------------------------------------------------------------------------
 function extractPostMetadata() {
   console.log('\nExtracting post metadata from _nextdata.json...');
@@ -423,6 +461,7 @@ function extractPostMetadata() {
         postType: post.postType || 'generic',
         hasVideo: !!(meta.videoIds),
         contributors: [],
+        tier: null, // assigned below
       };
 
       if (meta.contributors) {
@@ -432,6 +471,7 @@ function extractPostMetadata() {
         } catch {}
       }
 
+      entry.tier = assignTier(entry);
       allMeta.push(entry);
 
       if (entry.labelId) {
@@ -457,6 +497,10 @@ function extractPostMetadata() {
 
   allMeta.sort((a, b) => b.upvotes - a.upvotes);
 
+  // Tier summary
+  const tierCounts = { creator: 0, high: 0, medium: 0, low: 0 };
+  for (const e of allMeta) tierCounts[e.tier]++;
+
   const lines = [
     '# Community Posts - Metadata Summary',
     '',
@@ -467,15 +511,24 @@ function extractPostMetadata() {
     `Pinned posts: ${allMeta.filter(e => e.isPinned).length}`,
     `Posts with video: ${allMeta.filter(e => e.hasVideo).length}`,
     '',
+    '## Post Tiers',
+    '',
+    `| Tier | Count | Criteria |`,
+    `|------|-------|----------|`,
+    `| Creator | ${tierCounts.creator} | Posts by community owner (Brandon Hancock) |`,
+    `| High | ${tierCounts.high} | 5+ upvotes or pinned |`,
+    `| Medium | ${tierCounts.medium} | 2-4 upvotes |`,
+    `| Low | ${tierCounts.low} | 0-1 upvotes |`,
+    '',
     '## Top Posts by Engagement',
     '',
-    '| Upvotes | Comments | Title | Author | Date |',
-    '|---------|----------|-------|--------|------|',
+    '| Tier | Upvotes | Comments | Title | Author | Date |',
+    '|------|---------|----------|-------|--------|------|',
   ];
 
   for (const e of allMeta.slice(0, 30)) {
     const date = e.createdAt ? e.createdAt.split('T')[0] : '?';
-    lines.push(`| ${e.upvotes} | ${e.commentCount} | ${e.title.substring(0, 60)} | ${e.author} | ${date} |`);
+    lines.push(`| ${e.tier} | ${e.upvotes} | ${e.commentCount} | ${e.title.substring(0, 55)} | ${e.author} | ${date} |`);
   }
 
   lines.push('', '## All Posts (Chronological)', '');
@@ -484,7 +537,8 @@ function extractPostMetadata() {
     const date = e.createdAt ? e.createdAt.split('T')[0] : '?';
     const pinned = e.isPinned ? ' [PINNED]' : '';
     const label = e.labelName ? ` [${e.labelName}]` : '';
-    lines.push(`- **${e.title}**${pinned}${label} -- ${e.author} (${date}) -- ${e.upvotes} upvotes, ${e.commentCount} comments`);
+    const tier = ` [${e.tier.toUpperCase()}]`;
+    lines.push(`- **${e.title}**${pinned}${label}${tier} -- ${e.author} (${date}) -- ${e.upvotes} upvotes, ${e.commentCount} comments`);
   }
 
   const categories = new Map();
@@ -497,7 +551,7 @@ function extractPostMetadata() {
     lines.push('', '## Posts by Category', '');
     for (const [cat, posts] of categories) {
       lines.push(`### ${cat} (${posts.length} posts)`, '');
-      for (const p of posts) lines.push(`- ${p.title} -- ${p.upvotes} upvotes`);
+      for (const p of posts) lines.push(`- [${p.tier.toUpperCase()}] ${p.title} -- ${p.upvotes} upvotes`);
       lines.push('');
     }
   }
@@ -509,8 +563,252 @@ function extractPostMetadata() {
   fs.writeFileSync(jsonPath, JSON.stringify(allMeta, null, 2));
 
   console.log(`  Extracted metadata for ${allMeta.length} posts`);
+  console.log(`  Tiers: creator=${tierCounts.creator} high=${tierCounts.high} medium=${tierCounts.medium} low=${tierCounts.low}`);
   console.log(`  Summary: ${summaryPath}`);
   console.log(`  JSON: ${jsonPath}`);
+
+  return allMeta;
+}
+
+// ---------------------------------------------------------------------------
+// 7. Generate high-value-posts.md (3+ upvotes, creator, or pinned)
+// ---------------------------------------------------------------------------
+function generateHighValuePosts(allMeta) {
+  console.log('\nGenerating high-value-posts.md...');
+
+  const postsDir = path.join(CONTENT_DIR, '01-Community-Posts');
+  if (!allMeta) {
+    // Load from JSON if not passed
+    const jsonPath = path.join(CONTENT_DIR, 'posts-metadata.json');
+    if (fs.existsSync(jsonPath)) {
+      allMeta = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    } else {
+      console.log('  No metadata found. Run --extract-metadata first.');
+      return;
+    }
+  }
+
+  const highValue = allMeta.filter(e =>
+    e.upvotes >= 3 || e.isPinned || isCreatorPost(e)
+  ).sort((a, b) => b.upvotes - a.upvotes);
+
+  const lines = [
+    '# AI Developer Accelerator - High-Value Community Posts',
+    '',
+    `Generated: ${new Date().toISOString()}`,
+    `Filtered: ${highValue.length} posts (from ${allMeta.length} total)`,
+    `Criteria: 3+ upvotes OR pinned OR by community creator`,
+    '',
+    '---',
+    ''
+  ];
+
+  for (const e of highValue) {
+    const date = e.createdAt ? e.createdAt.split('T')[0] : '?';
+    const badges = [];
+    if (e.isPinned) badges.push('PINNED');
+    if (e.tier === 'creator') badges.push('CREATOR');
+    const badgeStr = badges.length ? ` [${badges.join(', ')}]` : '';
+
+    lines.push(`## ${e.title}${badgeStr}`, '');
+    lines.push(`**Author:** ${e.author} | **Date:** ${date} | **Upvotes:** ${e.upvotes} | **Comments:** ${e.commentCount} | **Tier:** ${e.tier}`, '');
+
+    // Include full content if available
+    const contentPath = path.join(postsDir, e.dir, 'content.md');
+    if (fs.existsSync(contentPath)) {
+      const content = fs.readFileSync(contentPath, 'utf8')
+        .replace(/---[\s\S]*?---/, '').trim();
+      lines.push(content, '');
+    }
+
+    // Include comments summary
+    const commentsPath = path.join(postsDir, e.dir, 'comments.md');
+    if (fs.existsSync(commentsPath)) {
+      const comments = fs.readFileSync(commentsPath, 'utf8');
+      const commentCount = (comments.match(/\*\*/g) || []).length / 2;
+      if (commentCount > 0) {
+        lines.push(`### Comments (${Math.floor(commentCount)})`, '');
+        lines.push(comments.replace('# Comments\n\n', ''), '');
+      }
+    }
+
+    lines.push('---', '');
+  }
+
+  const outPath = path.join(CONTENT_DIR, 'high-value-posts.md');
+  fs.writeFileSync(outPath, lines.join('\n'));
+  console.log(`  ${highValue.length} high-value posts written to ${outPath}`);
+}
+
+// ---------------------------------------------------------------------------
+// 8. Generate curriculum-only.md (zero community posts)
+// ---------------------------------------------------------------------------
+function generateCurriculumOnly() {
+  console.log('\nGenerating curriculum-only.md...');
+
+  const classroomDir = path.join(CONTENT_DIR, '02-Classroom');
+  if (!fs.existsSync(classroomDir)) {
+    console.log('  No classroom directory found');
+    return;
+  }
+
+  const lines = [
+    '# AI Developer Accelerator - Core Curriculum',
+    '',
+    `Generated: ${new Date().toISOString()}`,
+    '',
+    'This document contains structured course content only (no community posts).',
+    'Suitable for clean ingestion into NotebookLM or claude-code-toolkit.',
+    '',
+    '---',
+    ''
+  ];
+
+  const courses = fs.readdirSync(classroomDir)
+    .filter(d => fs.statSync(path.join(classroomDir, d)).isDirectory())
+    .filter(d => !d.startsWith('_') && !d.startsWith('00'))
+    .sort();
+
+  let totalLessons = 0;
+
+  for (const course of courses) {
+    const courseDir = path.join(classroomDir, course);
+    const courseName = course.replace(/-/g, ' ').replace(/^\d+-/, '');
+    lines.push(`## ${courseName}`, '');
+
+    // Read course metadata if available
+    const metaPath = path.join(courseDir, '_course-meta.json');
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        const title = meta.metadata?.title || courseName;
+        const desc = meta.metadata?.description;
+        if (desc) lines.push(`*${desc}*`, '');
+      } catch {}
+    }
+
+    // Read lessons index
+    const indexPath = path.join(courseDir, '_lessons-index.json');
+    if (fs.existsSync(indexPath)) {
+      try {
+        const lessons = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+        lines.push(`**${lessons.length} lessons**`, '');
+
+        // Group by parent module
+        const modules = new Map();
+        for (const lesson of lessons) {
+          const mod = lesson.parentTitle || 'General';
+          if (!modules.has(mod)) modules.set(mod, []);
+          modules.get(mod).push(lesson);
+        }
+
+        for (const [modName, modLessons] of modules) {
+          lines.push(`### ${modName}`, '');
+          for (const lesson of modLessons) {
+            lines.push(`#### ${lesson.title}`, '');
+            totalLessons++;
+
+            // Find and include lesson content
+            const lessonContent = findLessonContent(courseDir, lesson);
+            if (lessonContent) {
+              lines.push(lessonContent, '');
+            }
+
+            // Note if transcript exists
+            const transcriptPath = findLessonFile(courseDir, lesson, 'transcript.txt');
+            if (transcriptPath) {
+              const transcript = fs.readFileSync(transcriptPath, 'utf8').trim();
+              if (transcript.length > 0) {
+                lines.push('**Video Transcript:**', '');
+                lines.push(transcript, '');
+              }
+            }
+
+            lines.push('');
+          }
+        }
+      } catch (e) {
+        console.log(`  Error processing ${course}: ${e.message}`);
+      }
+    }
+
+    lines.push('---', '');
+  }
+
+  lines.splice(7, 0, `Total courses: ${courses.length}`, `Total lessons: ${totalLessons}`, '');
+
+  const outPath = path.join(CONTENT_DIR, 'curriculum-only.md');
+  fs.writeFileSync(outPath, lines.join('\n'));
+  console.log(`  ${courses.length} courses, ${totalLessons} lessons written to ${outPath}`);
+}
+
+/** Find lesson content.md by searching module/lesson subdirectories */
+function findLessonContent(courseDir, lesson) {
+  const sanitizedParent = lesson.parentTitle ? sanitize(lesson.parentTitle).substring(0, 60) : 'General';
+  const sanitizedTitle = sanitize(lesson.title);
+
+  // Search for content.md in any matching directory
+  const moduleDirs = fs.existsSync(path.join(courseDir, sanitizedParent))
+    ? [path.join(courseDir, sanitizedParent)]
+    : [];
+
+  // Also check all subdirs
+  try {
+    const allDirs = fs.readdirSync(courseDir).filter(d =>
+      fs.statSync(path.join(courseDir, d)).isDirectory()
+    );
+    for (const d of allDirs) {
+      const subPath = path.join(courseDir, d);
+      if (!moduleDirs.includes(subPath)) moduleDirs.push(subPath);
+    }
+  } catch {}
+
+  for (const modDir of moduleDirs) {
+    try {
+      const lessonDirs = fs.readdirSync(modDir).filter(d => {
+        const stripped = d.replace(/^\d+-/, '');
+        return stripped.includes(sanitizedTitle.substring(0, 30)) || d.includes(sanitizedTitle.substring(0, 30));
+      });
+      for (const ld of lessonDirs) {
+        const contentPath = path.join(modDir, ld, 'content.md');
+        if (fs.existsSync(contentPath)) {
+          return fs.readFileSync(contentPath, 'utf8')
+            .replace(/---[\s\S]*?---/, '').trim();
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/** Find a specific file in lesson subdirectories */
+function findLessonFile(courseDir, lesson, fileName) {
+  const sanitizedParent = lesson.parentTitle ? sanitize(lesson.parentTitle).substring(0, 60) : 'General';
+  const sanitizedTitle = sanitize(lesson.title);
+
+  try {
+    const allDirs = fs.readdirSync(courseDir).filter(d =>
+      fs.statSync(path.join(courseDir, d)).isDirectory()
+    );
+    for (const d of allDirs) {
+      const subPath = path.join(courseDir, d);
+      try {
+        const lessonDirs = fs.readdirSync(subPath).filter(ld => {
+          const stripped = ld.replace(/^\d+-/, '');
+          return stripped.includes(sanitizedTitle.substring(0, 30)) || ld.includes(sanitizedTitle.substring(0, 30));
+        });
+        for (const ld of lessonDirs) {
+          const filePath = path.join(subPath, ld, fileName);
+          if (fs.existsSync(filePath)) return filePath;
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
+function sanitize(name) {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').substring(0, 200);
 }
 
 // ---------------------------------------------------------------------------
@@ -535,13 +833,18 @@ function main() {
   else if (args.includes('--compile-transcripts')) compileTranscripts();
   else if (args.includes('--re-extract-comments')) reExtractComments();
   else if (args.includes('--extract-metadata')) extractPostMetadata();
+  else if (args.includes('--high-value')) generateHighValuePosts();
+  else if (args.includes('--curriculum-only')) generateCurriculumOnly();
   else {
+    // Run all steps in order
     generateMasterIndex();
     convertHtmlToMarkdown();
     extractSkillsAndTools();
     compileTranscripts();
     reExtractComments();
-    extractPostMetadata();
+    const allMeta = extractPostMetadata();
+    generateHighValuePosts(allMeta);
+    generateCurriculumOnly();
   }
 
   console.log('\n==============================================');
@@ -549,6 +852,8 @@ function main() {
   console.log('==============================================\n');
   console.log('Output:');
   console.log(`  - Master index: ${path.join(CONTENT_DIR, 'master-index.md')}`);
+  console.log(`  - Curriculum only: ${path.join(CONTENT_DIR, 'curriculum-only.md')}`);
+  console.log(`  - High-value posts: ${path.join(CONTENT_DIR, 'high-value-posts.md')}`);
   console.log(`  - Post metadata: ${path.join(CONTENT_DIR, 'posts-metadata.md')}`);
   console.log(`  - Extracted skills: ${SKILLS_DIR}/`);
 }
