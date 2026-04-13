@@ -1,0 +1,21 @@
+{
+  "name": "skool-ai-developer-accelerator-scrape",
+  "version": "1.0.0",
+  "description": "Scraper for Skool AI Developer Accelerator community - posts, classroom, and files",
+  "type": "commonjs",
+  "scripts": {
+    "scrape": "node downloader.js",
+    "scrape:force": "node downloader.js --force-lessons",
+    "scrape:visible": "HEADLESS=false node downloader.js",
+    "resources:v2": "node resource-downloader-v2.js",
+    "post-process": "node post-process.js",
+    "full-run": "node orchestrate.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "dotenv": "^16.6.1",
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

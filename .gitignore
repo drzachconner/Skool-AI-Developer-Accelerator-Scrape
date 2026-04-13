@@ -1,0 +1,6 @@
+node_modules/
+.env
+scraped-content/
+extracted-skills/
+scraper.log
+.venv/
