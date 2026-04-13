@@ -704,17 +704,21 @@ class SkoolScraper {
       }
     }
 
-    // Scroll fallback
+    // Scroll fallback (skip if browser is dead)
     console.log('  Scroll fallback to catch remaining posts...');
-    let prevCount = allPostUrls.size;
-    let staleRounds = 0;
-    for (let round = 0; round < 50 && staleRounds < 5; round++) {
-      const links = await collectLinks();
-      for (const l of links) allPostUrls.add(l);
-      if (allPostUrls.size === prevCount) staleRounds++;
-      else { staleRounds = 0; prevCount = allPostUrls.size; }
-      await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await this.page.waitForTimeout(2000 + Math.random() * 1000);
+    try {
+      let prevCount = allPostUrls.size;
+      let staleRounds = 0;
+      for (let round = 0; round < 50 && staleRounds < 5; round++) {
+        const links = await collectLinks();
+        for (const l of links) allPostUrls.add(l);
+        if (allPostUrls.size === prevCount) staleRounds++;
+        else { staleRounds = 0; prevCount = allPostUrls.size; }
+        await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await this.page.waitForTimeout(2000 + Math.random() * 1000);
+      }
+    } catch (e) {
+      console.log(`  Scroll fallback failed (${e.message}) — continuing with ${allPostUrls.size} URLs from pagination`);
     }
     console.log(`  After scroll: ${allPostUrls.size} total unique URLs`);
 
@@ -771,6 +775,12 @@ class SkoolScraper {
       } catch (e) {
         console.error(`  Error: ${e.message}`);
         this.stats.errors++;
+        // If browser is dead, stop scraping instead of cascading failures
+        if (e.message.includes('Target page, context or browser has been closed') ||
+            e.message.includes('Browser has been closed')) {
+          console.log('  Browser closed — saving progress and stopping post scraping');
+          break;
+        }
       }
     }
   }
@@ -907,8 +917,16 @@ class SkoolScraper {
       await this.init();
       await this.login();
       await this.scrapeClassroom();
-      await this.scrapeCommunityPosts();
-      await this.scrapeAbout();
+      try {
+        await this.scrapeCommunityPosts();
+      } catch (e) {
+        console.error(`Community posts error (progress saved): ${e.message}`);
+      }
+      try {
+        await this.scrapeAbout();
+      } catch (e) {
+        console.error(`About page error: ${e.message}`);
+      }
       this.report();
       console.log('\nDone! Run: node post-process.js');
     } catch (e) { console.error(`FATAL: ${e.message}\n${e.stack}`); }
