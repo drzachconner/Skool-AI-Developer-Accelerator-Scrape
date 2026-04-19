@@ -4,3 +4,5 @@ scraped-content/
 extracted-skills/
 scraper.log
 .venv/
+mmrag_ingest.log
+nohup.out

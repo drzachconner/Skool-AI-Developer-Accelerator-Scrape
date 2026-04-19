@@ -114,8 +114,39 @@ npm run full-run
 npm run scrape:force       # Re-scrape all lessons
 ```
 
+## NotebookLM Notebooks
+
+| Notebook | ID | Sources | Purpose |
+|----------|----|---------|---------|
+| AI Developer Accelerator - Skool Scrape | `b4dc4b1c-61f6-4193-b0f1-9a363aa9ebf9` | 1 | Queryable digest of all 128 curriculum lessons + Brandon Hancock's canonical course structure. Source: `scraped-content/curriculum-only.md`. |
+
+Query:
+```bash
+notebooklm-query --notebook "AI Developer Accelerator - Skool Scrape" "your question"
+```
+
+## mmrag Collection
+
+| Collection | Chunks | Sources | Purpose |
+|------------|--------|---------|---------|
+| `skool-ai-developer-accelerator` | (see below) | 128 | Per-lesson retrieval across all classroom modules (excludes community posts per Scrapes/CLAUDE.md). |
+
+Ingestion: `python3 scripts/mmrag_ingest.py` (idempotent via md5 dedup)
+
+Smoke-tested query (see [ai-developer-accelerator-notebooklm.md](~/.claude/projects/-Users-zachconnermba-Code/memory/ai-developer-accelerator-notebooklm.md)):
+- Query: "What are the key steps to build a full-stack AI application?"
+- Expected: High-relevance returns from Module X, Lesson Y about architecture fundamentals
+
 ## Security
 
 - Never commit `.env` — it is in `.gitignore`
 - Credentials are used only for Skool login; cookies are ephemeral per browser session
 - Stealth plugin modifies browser fingerprint to avoid detection
+
+## Completed Work
+
+- Skool scrape completed: 128 classroom lessons extracted with markdown content
+- Post-processing: `curriculum-only.md` generated (38K words, 128 lessons)
+- NotebookLM setup script created: `setup-notebooklm.py` creates notebook and loads `curriculum-only.md` as source
+- NotebookLM notebook created (2026-04-19): `AI Developer Accelerator - Skool Scrape` with ID `b4dc4b1c-61f6-4193-b0f1-9a363aa9ebf9`
+- mmrag ingestion script created: `scripts/mmrag_ingest.py` adapts LBP pattern for 128 per-lesson files
