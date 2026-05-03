@@ -3,6 +3,8 @@ node_modules/
 scraped-content/
 extracted-skills/
 scraper.log
+post-process.log
+resources.log
 .venv/
 mmrag_ingest.log
 nohup.out
