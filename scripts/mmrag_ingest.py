@@ -18,9 +18,10 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib import request as urlrequest
+from urllib.error import URLError
 
 import chromadb
-from google import genai
 
 MMRAG_DIR = os.path.expanduser("~/.mmrag")
 CHROMA_PATH = os.path.join(MMRAG_DIR, "chromadb")
@@ -38,11 +39,10 @@ with open(CONFIG_PATH) as f:
 
 CHUNK_SIZE = config.get("text_chunk_size", 4000)
 CHUNK_OVERLAP = config.get("text_chunk_overlap", 200)
-EMBED_DIM = config.get("embedding_dimensions", 768)
-EMBED_MODEL = config.get("embedding_model", "gemini-embedding-2-preview")
-API_KEY = config["gemini_api_key"]
+EMBED_DIM = 768  # nomic-embed-text fixed dimensionality
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+EMBED_MODEL = os.environ.get("MMRAG_EMBED_MODEL", "nomic-embed-text")
 
-client_genai = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 
@@ -58,34 +58,36 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     return chunks
 
 
+def _ollama_embed(batch):
+    payload = json.dumps({"model": EMBED_MODEL, "input": batch}).encode("utf-8")
+    req = urlrequest.Request(
+        f"{OLLAMA_URL}/api/embed",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlrequest.urlopen(req, timeout=300) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    return body["embeddings"]
+
+
 def get_embeddings(texts, batch_size=20):
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
         batch = [t[:8000] for t in texts[i:i + batch_size]]
-        backoff = 60
+        backoff = 5
         for attempt in range(5):
             try:
-                result = client_genai.models.embed_content(
-                    model=EMBED_MODEL,
-                    contents=batch,
-                    config={"output_dimensionality": EMBED_DIM},
-                )
-                all_embeddings.extend(e.values for e in result.embeddings)
+                all_embeddings.extend(_ollama_embed(batch))
                 break
-            except Exception as e:
-                msg = str(e)
-                transient = any(t in msg for t in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "500")) or "quota" in msg.lower()
-                if transient and attempt < 4:
-                    print(f"  Rate limited, waiting {backoff}s (attempt {attempt + 1}/5)...", flush=True)
+            except (URLError, TimeoutError, json.JSONDecodeError) as e:
+                if attempt < 4:
+                    print(f"  Ollama embed retry {attempt + 1}/5 after {backoff}s ({e})", flush=True)
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 300)
+                    backoff = min(backoff * 2, 60)
                     continue
-                if transient:
-                    print("  FATAL: still rate limited after 5 retries, skipping sub-batch", flush=True)
-                    return None
-                raise
-        if i + batch_size < len(texts):
-            time.sleep(3)
+                print(f"  FATAL: Ollama embed failed after 5 retries: {e}", flush=True)
+                return None
     return all_embeddings
 
 

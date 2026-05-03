@@ -129,9 +129,11 @@ notebooklm-query --notebook "AI Developer Accelerator - Skool Scrape" "your ques
 
 | Collection | Chunks | Sources | Purpose |
 |------------|--------|---------|---------|
-| `skool-ai-developer-accelerator` | (see below) | 128 | Per-lesson retrieval across all classroom modules (excludes community posts per Scrapes/CLAUDE.md). |
+| `skool-ai-developer-accelerator` | 334 | 128 | Per-lesson retrieval across all classroom modules (excludes community posts per Scrapes/CLAUDE.md). |
 
-Ingestion: `python3 scripts/mmrag_ingest.py` (idempotent via md5 dedup)
+Ingestion: `python3 scripts/mmrag_ingest.py` (idempotent via md5 dedup, **path-based** — drop the collection before re-ingesting refreshed content).
+
+**Embeddings:** local Ollama `nomic-embed-text` (768d, free). Requires `ollama serve` running and `ollama pull nomic-embed-text`. Override with `MMRAG_EMBED_MODEL` env var. Queries must use the same model.
 
 Smoke-tested query (see [ai-developer-accelerator-notebooklm.md](~/.claude/projects/-Users-zachconnermba-Code/memory/ai-developer-accelerator-notebooklm.md)):
 - Query: "What are the key steps to build a full-stack AI application?"
@@ -150,3 +152,4 @@ Smoke-tested query (see [ai-developer-accelerator-notebooklm.md](~/.claude/proje
 - NotebookLM setup script created: `setup-notebooklm.py` creates notebook and loads `curriculum-only.md` as source
 - NotebookLM notebook created (2026-04-19): `AI Developer Accelerator - Skool Scrape` with ID `b4dc4b1c-61f6-4193-b0f1-9a363aa9ebf9`
 - mmrag ingestion script created: `scripts/mmrag_ingest.py` adapts LBP pattern for 128 per-lesson files
+- 2026-05-03: fresh re-scrape (force-lessons), curriculum-only.md regenerated (980K, was 879K), NotebookLM source replaced, mmrag re-ingested with local Ollama (`nomic-embed-text`, 768d) — paid Gemini API removed.
