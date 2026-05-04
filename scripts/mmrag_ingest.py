@@ -74,7 +74,7 @@ def _ollama_embed(batch):
 def get_embeddings(texts, batch_size=20):
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
-        batch = [t[:8000] for t in texts[i:i + batch_size]]
+        batch = [f"search_document: {t[:8000]}" for t in texts[i:i + batch_size]]
         backoff = 5
         for attempt in range(5):
             try:

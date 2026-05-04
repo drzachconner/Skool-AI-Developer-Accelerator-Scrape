@@ -917,11 +917,8 @@ class SkoolScraper {
       await this.init();
       await this.login();
       await this.scrapeClassroom();
-      try {
-        await this.scrapeCommunityPosts();
-      } catch (e) {
-        console.error(`Community posts error (progress saved): ${e.message}`);
-      }
+      console.log('\n=== Skipping Community Posts (curriculum-only convention) ===\n');
+      console.log('  Legacy scrapeCommunityPosts() remains defined but is not called.');
       try {
         await this.scrapeAbout();
       } catch (e) {

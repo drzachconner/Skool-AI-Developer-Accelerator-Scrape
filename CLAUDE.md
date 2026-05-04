@@ -10,7 +10,7 @@ When processing, curating, or applying knowledge from this scrape:
 
 ## Project Overview
 
-Browser automation tool that scrapes the "AI Developer Accelerator" Skool community (skool.com/ai-developer-accelerator) to extract educational content about full-stack AI development — posts, classroom courses/lessons, attached resources, and community discussions.
+Browser automation tool that scrapes the "AI Developer Accelerator" Skool community (skool.com/ai-developer-accelerator) to extract educational content about full-stack AI development — classroom courses/lessons, attached resources, and community metadata.
 
 **Community:** PUBLIC, free, 10.8K members. Creator: Brandon Hancock. Focus: full-stack AI development, Claude Code vs Cursor comparisons, MCP content.
 
@@ -27,7 +27,7 @@ Browser automation tool that scrapes the "AI Developer Accelerator" Skool commun
 
 | Script | Purpose | Run Command |
 |--------|---------|-------------|
-| `downloader.js` | Main scraper — login, classroom (sidebar nav), posts, about | `npm run scrape` |
+| `downloader.js` | Main scraper — login, classroom (sidebar nav), about; legacy community-post code remains dormant | `npm run scrape` |
 | `resource-downloader-v2.js` | Download .docx/.pdf/.md resources via Skool API signed URLs | `npm run resources:v2` |
 | `post-process.js` | Generate master index, high-value digest, curriculum-only, convert HTML, extract skills, compile transcripts | `npm run post-process` |
 | `orchestrate.js` | Full pipeline: scrape → resources → post-process | `npm run full-run` |
@@ -37,7 +37,7 @@ Browser automation tool that scrapes the "AI Developer Accelerator" Skool commun
 - Exploits Next.js SSR `__NEXT_DATA__` JSON from Skool pages instead of fragile DOM parsing
 - **Sidebar-click navigation** for lessons: navigates to course page once, then clicks lessons in sidebar
 - Uses stealth plugin to avoid bot detection
-- Implements infinite scroll + API pagination for community post discovery
+- Legacy infinite scroll + API pagination code for community post discovery remains defined but is not called
 - Post URL deduplication: strips `?p=` query params before comparing
 - Progress tracking via `scraped-content/progress.json` for resumable runs
 - Rate-limited: 1.5–3.5s random delays between requests
@@ -64,7 +64,7 @@ Post-processing generates tiered outputs:
 
 ```
 scraped-content/
-├── 01-Community-Posts/     # All community posts with comments, links, screenshots
+├── 01-Community-Posts/     # Legacy community posts; not updated by new scraper runs
 │   └── {post-name}/
 │       ├── _nextdata.json  # Raw Skool API data
 │       ├── content.md      # Extracted markdown
@@ -106,7 +106,7 @@ Required in `.env`:
 npm run full-run
 
 # Or step by step:
-1. npm run scrape          # Scrape classroom + posts + about
+1. npm run scrape          # Scrape classroom + about; community posts are skipped
 2. npm run resources:v2    # Download classroom resources via Skool API
 3. npm run post-process    # Generate all indexes, digests, and extractions
 
